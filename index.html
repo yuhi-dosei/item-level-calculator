@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>FF14 アイテムレベル計算</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 600px; }
+    label { display: block; margin-top: 10px; }
+    input[type="number"] { width: 80px; }
+    button { margin-top: 20px; padding: 5px 15px; }
+  </style>
+</head>
+<body>
+  <h1>FF14 アイテムレベル計算</h1>
+
+  <div id="inputs"></div>
+
+  <label>目標アイテムレベル:
+    <input type="number" id="targetIL" value="700">
+  </label>
+
+  <button onclick="calculate()">計算</button>
+
+  <h2>結果</h2>
+  <p id="averageIL"></p>
+  <ul id="suggestions"></ul>
+
+  <script>
+    const slotDisplayNames = {
+      "メインアーム": "メインアーム",
+      "サブアーム": "サブアーム",
+      "頭": "頭",
+      "胴": "胴",
+      "手": "手",    
+      "脚": "脚",
+      "足": "足",
+      "耳": "耳",
+      "首": "首",
+      "腕": "腕",     
+      "指1": "指1",
+      "指2": "指2"
+    };
+
+    const slots = Object.keys(slotDisplayNames);
+    const displayOrder = slots;
+
+    const inputDiv = document.getElementById('inputs');
+
+    // 入力フィールドを生成（初期値0）
+    slots.forEach(slot => {
+      inputDiv.innerHTML += `
+        <label>${slotDisplayNames[slot]}:
+          <input type="number" id="${slot}" value="0" min="0">
+        </label>`;
+    });
+
+    function calculate() {
+      const ilMap = {};
+      slots.forEach(slot => {
+        ilMap[slot] = parseInt(document.getElementById(slot).value) || 0;
+      });
+
+      const target = parseInt(document.getElementById("targetIL").value) || 0;
+      const usesSubArm = ilMap["サブアーム"] > 0;
+
+      // 平均ILの算出（12部位）
+      let total = 0;
+      if (usesSubArm) {
+        total = ilMap["メインアーム"] + ilMap["サブアーム"];
+      } else {
+        total = ilMap["メインアーム"] * 2;
+      }
+
+      const bodyParts = ["頭", "胴", "手", "脚", "足", "耳", "首", "腕", "指1", "指2"];
+      bodyParts.forEach(part => total += ilMap[part]);
+
+      const averageRaw = total / 12;
+      const average = Math.floor(averageRaw);  // 小数点以下を切り捨て＆整数化
+
+      document.getElementById("averageIL").innerText = `現在の平均IL: ${average}`;
+
+      // 強化提案ロジック
+      const suggestions = [];
+      const validItems = [];
+
+      if (usesSubArm) {
+        validItems.push("メインアーム", "サブアーム");
+      } else {
+        validItems.push("メインアーム"); // 後で2倍扱い
+      }
+      validItems.push(...bodyParts);
+
+      const currentTotal = validItems.reduce((sum, slot) => {
+        return sum + (slot === "メインアーム" && !usesSubArm ? ilMap[slot] * 2 : ilMap[slot]);
+      }, 0);
+
+      const needed = target * 12 - currentTotal;
+
+      if (needed <= 0) {
+        suggestions.push({ slot: "達成", message: "目標アイテムレベルに到達しています！" });
+      } else {
+        const sortedParts = validItems
+          .map(slot => ({ slot, il: ilMap[slot] }))
+          .sort((a, b) => a.il - b.il);
+
+        let remaining = needed;
+
+        for (let item of sortedParts) {
+          let currentIL = item.il;
+          let weight = (item.slot === "メインアーム" && !usesSubArm) ? 2 : 1;
+          let maxIncrease = target - currentIL;
+
+          if (maxIncrease > 0) {
+            let effectiveIncrease = Math.min(maxIncrease, Math.ceil(remaining / weight));
+            suggestions.push({
+              slot: item.slot,
+              message: `${slotDisplayNames[item.slot]} を ${currentIL + effectiveIncrease} に強化`
+            });
+            remaining -= effectiveIncrease * weight;
+          }
+
+          if (remaining <= 0) break;
+        }
+
+        if (remaining > 0) {
+          suggestions.push({ slot: "警告", message: "すべての装備を目標まで上げても到達できません。" });
+        }
+      }
+
+      // 表示順に整列
+      const orderedSuggestions = displayOrder
+        .map(orderSlot => suggestions.find(s => s.slot === orderSlot))
+        .filter(s => s)
+        .concat(suggestions.filter(s => s.slot === "達成" || s.slot === "警告"));
+
+      document.getElementById("suggestions").innerHTML = orderedSuggestions
+        .map(s => `<li>${s.message}</li>`)
+        .join("");
+    }
+  </script>
+</body>
+</html>
